@@ -44,6 +44,30 @@ type BillingRequest = {
   action?: "checkout";
 };
 
+type CreatePublicBookingRequest = {
+  outlet_id?: string;
+  outletId?: string;
+  rooms_requested?: number;
+  roomsRequested?: number;
+  preferred_room_type?: string;
+  preferredRoomType?: string;
+  preferred_categories?: Record<string, unknown>;
+  guest_name?: string;
+  guest_email?: string;
+  guest_phone?: string;
+  check_in_date?: string;
+  check_out_date?: string;
+  number_of_guests?: number;
+  total_amount?: number;
+  totalAmount?: number;
+  room_total?: number;
+  roomTotal?: number;
+  guests_count?: number;
+  guestsCount?: number;
+  special_requests?: string;
+  specialRequests?: string;
+};
+
 type OrderDocument = {
   _id: string | import("mongodb").ObjectId;
   total?: number;
@@ -64,6 +88,7 @@ const ORDER_STATUSES_TO_INCLUDE = new Set([
 
 const ACTIVE_BOOKING_STATUSES = new Set(["PENDING", "CONFIRMED", "CHECKED_IN"]);
 const MAX_DATA_URL_LENGTH = 10_000_000;
+const DAY_IN_MS = 86_400_000;
 
 const toNumber = (value: unknown, fallback = 0): number => {
   if (value === null || value === undefined) return fallback;
@@ -77,6 +102,11 @@ const toNumber = (value: unknown, fallback = 0): number => {
 
 const normaliseString = (value: unknown): string =>
   typeof value === "string" ? value.trim() : "";
+
+const toPositiveInt = (value: unknown, fallback = 0): number => {
+  const numeric = Math.floor(toNumber(value, fallback));
+  return Number.isFinite(numeric) && numeric > 0 ? numeric : fallback;
+};
 
 const normaliseId = (value: unknown): string | undefined => {
   if (!value) return undefined;
@@ -101,6 +131,60 @@ const sanitiseDataUrl = (value: unknown) => {
     throw new HttpError(400, "Uploaded file is too large. Please keep uploads under 7MB.");
   }
   return trimmed;
+};
+
+const sanitisePreferredCategories = (
+  raw: unknown,
+  fallbackCategory: string | null,
+  fallbackCount: number,
+): Record<string, number> | null => {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    if (fallbackCategory && fallbackCount > 0) {
+      return { [fallbackCategory]: fallbackCount };
+    }
+    return null;
+  }
+
+  const entries = Object.entries(raw as Record<string, unknown>).reduce<Record<string, number>>(
+    (acc, [key, value]) => {
+      const normalisedKey = normaliseString(key);
+      if (!normalisedKey) return acc;
+      const count = toPositiveInt(value, 0);
+      if (count <= 0) return acc;
+      acc[normalisedKey] = (acc[normalisedKey] ?? 0) + count;
+      return acc;
+    },
+    {},
+  );
+
+  if (Object.keys(entries).length > 0) {
+    return entries;
+  }
+
+  if (fallbackCategory && fallbackCount > 0) {
+    return { [fallbackCategory]: fallbackCount };
+  }
+
+  return null;
+};
+
+const generateBookingCodeCandidate = () => {
+  const timestampPart = Date.now().toString(36).toUpperCase().slice(-4);
+  const randomPart = Math.random().toString(36).toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 6);
+  const paddedRandom = randomPart.padEnd(6, "X");
+  return `RC${timestampPart}${paddedRandom}`;
+};
+
+const ensureUniqueBookingCode = async (collection: import("mongodb").Collection<BookingRecord>) => {
+  for (let attempt = 0; attempt < 10; attempt += 1) {
+    const code = generateBookingCodeCandidate();
+    const existing = await collection.findOne(
+      { booking_code: code } as import("mongodb").Filter<BookingRecord>,
+      { projection: { _id: 1 } },
+    );
+    if (!existing) return code;
+  }
+  throw new HttpError(500, "Unable to generate booking code. Please try again.");
 };
 
 const ensureObjectId = (value: unknown, message: string) => {
@@ -311,6 +395,113 @@ const normaliseBooking = (doc: any) => {
 };
 
 export class BookingService {
+  async createPublic(request: CreatePublicBookingRequest) {
+    const outletIdRaw = normaliseString(request?.outlet_id ?? request?.outletId);
+    if (!outletIdRaw) {
+      throw new HttpError(400, "outlet_id is required");
+    }
+
+    const checkInRaw = request?.check_in_date;
+    const checkOutRaw = request?.check_out_date;
+    if (!checkInRaw || !checkOutRaw) {
+      throw new HttpError(400, "check_in_date and check_out_date are required");
+    }
+
+    const checkIn = new Date(checkInRaw);
+    const checkOut = new Date(checkOutRaw);
+    if (Number.isNaN(checkIn.getTime()) || Number.isNaN(checkOut.getTime())) {
+      throw new HttpError(400, "Invalid check-in or check-out date");
+    }
+    if (checkOut <= checkIn) {
+      throw new HttpError(400, "check_out_date must be after check_in_date");
+    }
+
+    const roomsRequested =
+      toPositiveInt(request?.rooms_requested, 0) || toPositiveInt(request?.roomsRequested, 0);
+    if (roomsRequested <= 0) {
+      throw new HttpError(400, "rooms_requested must be a positive number");
+    }
+
+    const guestsCount =
+      toPositiveInt(request?.number_of_guests, 0) ||
+      toPositiveInt(request?.guests_count, 0) ||
+      toPositiveInt(request?.guestsCount, 0);
+    if (guestsCount <= 0) {
+      throw new HttpError(400, "number_of_guests must be a positive number");
+    }
+
+    const totalAmountRaw =
+      request?.total_amount ?? request?.totalAmount ?? request?.room_total ?? request?.roomTotal;
+    const totalAmount = Number(totalAmountRaw ?? 0);
+    if (totalAmount < 0 || Number.isNaN(totalAmount)) {
+      throw new HttpError(400, "total_amount must be zero or a positive number");
+    }
+
+    const preferredRoomType = normaliseString(
+      request?.preferred_room_type ?? request?.preferredRoomType,
+    );
+
+    const guestName = normaliseString(request?.guest_name);
+    if (!guestName) {
+      throw new HttpError(400, "guest_name is required");
+    }
+
+    const guestEmailRaw = normaliseString(request?.guest_email);
+    const guestEmail = guestEmailRaw ? guestEmailRaw.toLowerCase() : null;
+    const guestPhone = normaliseString(request?.guest_phone) || null;
+
+    const specialRequests =
+      normaliseString(request?.special_requests ?? request?.specialRequests) || null;
+
+    const nights = Math.max(Math.ceil((checkOut.getTime() - checkIn.getTime()) / DAY_IN_MS), 1);
+
+    const preferredCategories = sanitisePreferredCategories(
+      request?.preferred_categories,
+      preferredRoomType || null,
+      roomsRequested,
+    );
+
+    const now = new Date();
+    const db = mongoConnection.getDb();
+    const bookingsCollection = db.collection<BookingRecord>("bookings");
+
+    const bookingCode = await ensureUniqueBookingCode(bookingsCollection);
+
+    const bookingDoc: Omit<BookingRecord, "_id"> & { roomsRequested: number } = {
+      outlet_id: outletIdRaw,
+      guest_name: guestName,
+      guest_email: guestEmail,
+      guest_phone: guestPhone,
+      check_in_date: checkIn,
+      check_out_date: checkOut,
+      number_of_guests: guestsCount,
+      rooms_requested: roomsRequested,
+      roomsRequested,
+      preferred_room_type: preferredRoomType || null,
+      preferred_categories: preferredCategories,
+      total_amount: Number(totalAmount.toFixed(2)),
+      special_requests: specialRequests,
+      booking_code: bookingCode,
+      status: "PENDING",
+      nights,
+      rooms_allocated: [],
+      checkin_details: null,
+      created_at: now,
+      updated_at: now,
+    };
+
+    const insertResult = await bookingsCollection.insertOne(bookingDoc);
+    const createdBooking = {
+      ...bookingDoc,
+      _id: insertResult.insertedId,
+    };
+    const response = normaliseBooking(createdBooking);
+
+    return {
+      booking: response,
+    };
+  }
+
   async manage(request: ManageBookingsRequest, user: AuthenticatedUser) {
     if (!user.roles.includes("admin") && !user.roles.includes("rooms")) {
       throw new HttpError(403, "Insufficient permissions to manage bookings");

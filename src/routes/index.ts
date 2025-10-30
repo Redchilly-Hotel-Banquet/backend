@@ -4,7 +4,7 @@ import { locationRouter } from "../modules/locations/location.routes.js";
 import { menuRouter } from "../modules/menu/menu.routes.js";
 import { publicOrderRouter, adminOrderRouter } from "../modules/orders/order.routes.js";
 import { publicOutletRouter, adminOutletRouter } from "../modules/outlets/outlet.routes.js";
-import { adminBookingRouter } from "../modules/bookings/booking.routes.js";
+import { publicBookingRouter, adminBookingRouter } from "../modules/bookings/booking.routes.js";
 import { publicRoomRouter, adminRoomRouter } from "../modules/rooms/room.routes.js";
 import { adminCategoryRouter } from "../modules/categories/category.routes.js";
 import { adminAnalyticsRouter } from "../modules/analytics/analytics.routes.js";
@@ -19,6 +19,7 @@ publicRoutes.use("/menu", menuRouter);
 publicRoutes.use("/orders", publicOrderRouter);
 publicRoutes.use("/outlets", publicOutletRouter);
 publicRoutes.use("/rooms", publicRoomRouter);
+publicRoutes.use("/bookings", publicBookingRouter);
 
 const adminRoutes = Router();
 adminRoutes.use("/orders", adminOrderRouter);

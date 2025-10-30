@@ -601,7 +601,7 @@ export class RoomService {
         const payloadDoc = sanitiseRoomPayload(data as Record<string, unknown>);
         const insertResult = await roomsCollection.insertOne(payloadDoc);
         return {
-          id: insertResult.toString(),
+          id: toStringId(insertResult.insertedId) ?? String(insertResult.insertedId),
           ...payloadDoc,
         };
       }
@@ -679,7 +679,7 @@ export class RoomService {
         const payloadDoc = sanitisePricingPayload(rule as Record<string, unknown>);
         const insertResult = await pricingCollection.insertOne(payloadDoc);
         return {
-          id: insertResult.toString(),
+          id: toStringId(insertResult.insertedId) ?? String(insertResult.insertedId),
           ...payloadDoc,
         };
       }
