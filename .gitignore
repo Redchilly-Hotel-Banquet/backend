@@ -1,0 +1,12 @@
+dist
+node_modules
+.env
+.DS_Store
+.vscode
+logs
+*.log
+coverage
+.idea
+*.iml
+generate-jwt-secret.mjs
+package-lock.json
