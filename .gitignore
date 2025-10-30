@@ -8,5 +8,7 @@ logs
 coverage
 .idea
 *.iml
-generate-jwt-secret.mjs
+gen-jwt-secret.mjs
 package-lock.json
+deploy.sh
+create-deployment-docker.sh
