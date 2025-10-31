@@ -5,6 +5,7 @@ import { asyncHandler } from "../../utils/asyncHandler.js";
 
 export const publicBookingRouter = Router();
 publicBookingRouter.post("/", asyncHandler(bookingController.createPublic));
+publicBookingRouter.post("/checkin", asyncHandler(bookingController.checkin));
 
 export const adminBookingRouter = Router();
 adminBookingRouter.use(authenticate(["admin", "rooms"]));

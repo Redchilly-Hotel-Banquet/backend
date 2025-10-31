@@ -18,10 +18,10 @@ class BookingController {
   };
 
   checkin = async (req: AuthenticatedRequest, res: Response) => {
-    if (!req.user) {
-      throw new Error("Missing authenticated user");
-    }
-    const response = await bookingService.checkin(req.body, req.user);
+    const response = await bookingService.checkin(
+      req.body ?? {},
+      req.user ?? null,
+    );
     return sendSuccess(res, response);
   };
 
