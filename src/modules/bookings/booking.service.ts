@@ -1,6 +1,7 @@
 import { mongoConnection } from "../../config/mongo.js";
 import { HttpError } from "../../core/httpError.js";
 import { AuthenticatedUser } from "../../middleware/authenticate.js";
+import { matchesLastName } from "../../utils/dates.js";
 import { normalizeDocument } from "../../utils/normalizers.js";
 import { stringifyId, toObjectId } from "../../utils/objectId.js";
 
@@ -37,6 +38,7 @@ type CheckinRequest = {
   bookingCode?: string;
   checkinData?: Record<string, unknown>;
   markAsCheckedIn?: boolean;
+  lastName?: string;
 };
 
 type BillingRequest = {
@@ -169,10 +171,10 @@ const sanitisePreferredCategories = (
 };
 
 const generateBookingCodeCandidate = () => {
-  const timestampPart = Date.now().toString(36).toUpperCase().slice(-4);
-  const randomPart = Math.random().toString(36).toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 6);
-  const paddedRandom = randomPart.padEnd(6, "X");
-  return `RC${timestampPart}${paddedRandom}`;
+  const timestampPart = Date.now().toString(36).toUpperCase().slice(-3);
+  const randomPart = Math.random().toString(36).toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 3);
+  const paddedRandom = randomPart.padEnd(3, "X");
+  return `RC-${timestampPart}${paddedRandom}`;
 };
 
 const ensureUniqueBookingCode = async (collection: import("mongodb").Collection<BookingRecord>) => {
@@ -441,6 +443,9 @@ export class BookingService {
       request?.preferred_room_type ?? request?.preferredRoomType,
     );
 
+    if (!preferredRoomType) {
+      throw new HttpError(400, "preferred_room_type is required");
+    }
     const guestName = normaliseString(request?.guest_name);
     if (!guestName) {
       throw new HttpError(400, "guest_name is required");
@@ -971,6 +976,32 @@ export class BookingService {
         booking: responseBooking,
         checkinDetails: responseDetails,
         availableRooms: refreshedAvailability,
+      };
+    }
+
+    if (action === "lookup") {
+      const bookingCode = normaliseString(request.bookingCode).toUpperCase();
+      const lastName = normaliseString(request.lastName);
+
+      if (!bookingCode) {
+        throw new HttpError(400, "bookingCode is required");
+      }
+
+      const booking = await bookingsCollection.findOne({
+        booking_code: bookingCode,
+      });
+
+      
+      if (!booking) {
+        throw new HttpError(404, "Booking not found");
+      }
+      
+      if (!matchesLastName(String(booking.guest_name ?? ''), lastName)) {
+        throw new HttpError(404, "Booking not found");
+      }
+
+      return {
+        booking: serialiseBookingDetailed(booking),
       };
     }
 
