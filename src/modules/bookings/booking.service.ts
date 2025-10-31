@@ -495,7 +495,7 @@ export class BookingService {
       updated_at: now,
     };
 
-    const insertResult = await bookingsCollection.insertOne(bookingDoc);
+    const insertResult = await bookingsCollection.insertOne(bookingDoc as any);
     const createdBooking = {
       ...bookingDoc,
       _id: insertResult.insertedId,

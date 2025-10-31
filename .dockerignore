@@ -1,7 +1,7 @@
 .vscode
 .env
 node_modules
-package-lock.json
 .dockercommand
 deploy.sh
 create-deployment-docker.sh
+dist

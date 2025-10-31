@@ -1,11 +1,12 @@
 # Use the official Node.js image
-FROM node:18
+FROM node:22
 
 # Set the working directory
 WORKDIR /app
 
 # Copy only the necessary files
-COPY package*.json ./
+COPY package.json ./
+COPY package-lock.json ./
 
 # Install dependencies
 RUN npm install
@@ -32,5 +33,7 @@ ENV ADMIN_DEFAULT_PASSWORD=$ADMIN_DEFAULT_PASSWORD
 # Expose the port (if needed)
 EXPOSE ${PORT}
 
+# Build the application (if applicable)
+RUN npm run build
 # Start the application
 CMD ["npm", "start"]
